@@ -36,8 +36,8 @@ def get_real_data_from_mongodb():
         print("✅ Connected to MongoDB")
         
         # Change these to your actual database/collection names
-        db = client["bus_stop_db"]  # Your database name
-        collection = db["bus_stop_counts"]  # Your collection name
+        db = client["people_counter"]  # Your database name
+        collection = db["readings"]  # Your collection name
         
         # Get last 60 days of data
         end_date = datetime.now()
