@@ -19,18 +19,35 @@ jobs:
     
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt
-        pip install pymongo pandas numpy scikit-learn tensorflow
+        pip install --upgrade pip
+        # Install from requirements.txt if it exists
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          # Fallback if requirements.txt missing
+          pip install fastapi==0.104.1 uvicorn[standard]==0.24.0 tensorflow==2.15.0 numpy==1.24.3 pandas==2.1.4 pymongo==4.5.0 joblib==1.3.2 scikit-learn==1.3.2
+        fi
     
     - name: Train with real MongoDB data
       env:
         MONGODB_URI: ${{ secrets.MONGODB_URI }}
-      run: python train_real_data.py
+      run: |
+        echo "🔄 Starting training..."
+        python train_real_data.py
+    
+    - name: Check for model updates
+      id: check-updates
+      run: |
+        # Check if any model files changed
+        git diff --name-only HEAD | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)' && echo "changes=true" >> $GITHUB_OUTPUT || echo "changes=false" >> $GITHUB_OUTPUT
     
     - name: Commit updated model
+      if: steps.check-updates.outputs.changes == 'true'
       run: |
-        git config --global user.name 'github-actions'
-        git config --global user.email 'github-actions@github.com'
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
-        git commit -m "Daily model update" || echo "No changes to commit"
+        git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
         git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
