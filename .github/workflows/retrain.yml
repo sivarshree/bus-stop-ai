@@ -11,6 +11,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -39,7 +41,7 @@ jobs:
       id: check-updates
       run: |
         # Check if any model files changed
-        git diff --name-only HEAD | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)' && echo "changes=true" >> $GITHUB_OUTPUT || echo "changes=false" >> $GITHUB_OUTPUT
+        git status --porcelain | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)' && echo "changes=true" >> $GITHUB_OUTPUT || echo "changes=false" >> $GITHUB_OUTPUT
     
     - name: Commit updated model
       if: steps.check-updates.outputs.changes == 'true'
@@ -49,5 +51,3 @@ jobs:
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
         git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
         git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
