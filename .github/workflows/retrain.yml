@@ -1,0 +1,36 @@
+name: Daily AI Retraining
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Runs daily at 2 AM UTC
+  workflow_dispatch:      # Allows manual run
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pymongo pandas numpy scikit-learn tensorflow
+    
+    - name: Train with real MongoDB data
+      env:
+        MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      run: python train_real_data.py
+    
+    - name: Commit updated model
+      run: |
+        git config --global user.name 'github-actions'
+        git config --global user.email 'github-actions@github.com'
+        git add bus_stop_predictor.h5 scaler.pkl model_info.json
+        git commit -m "Daily model update" || echo "No changes to commit"
+        git push
