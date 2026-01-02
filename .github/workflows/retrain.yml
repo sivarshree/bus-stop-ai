@@ -1,8 +1,9 @@
-name: Daily AI Retraining
+name: Daily AI Retraining  # ← THIS LINE CONTROLS THE DISPLAY NAME
+
 on:
   schedule:
-    - cron: '0 2 * * *'  # Runs daily at 2 AM UTC
-  workflow_dispatch:      # Allows manual run
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:      # Manual trigger
 
 jobs:
   retrain:
