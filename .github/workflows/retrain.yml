@@ -43,11 +43,15 @@ jobs:
         # Check if any model files changed
         git status --porcelain | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)' && echo "changes=true" >> $GITHUB_OUTPUT || echo "changes=false" >> $GITHUB_OUTPUT
     
-    - name: Commit updated model
+     - name: Commit updated model
       if: steps.check-updates.outputs.changes == 'true'
+      env:
+        # Use PAT token instead of GITHUB_TOKEN
+        GH_TOKEN: ${{ secrets.PAT_TOKEN }}
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
         git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
-        git push
+        git push origin main
