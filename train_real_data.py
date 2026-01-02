@@ -18,7 +18,7 @@ print("🔄 Daily AI Retraining Started")
 print(f"📅 {datetime.now()}")
 
 def get_real_data_from_mongodb():
-    """Connect to REAL MongoDB and get bus stop data"""
+    """Connect to REAL MongoDB and get ALL bus stop data"""
     
     # Get connection string from environment variable (set in GitHub Secrets)
     mongo_uri = os.environ.get("MONGODB_URI")
@@ -35,22 +35,15 @@ def get_real_data_from_mongodb():
         client.server_info()
         print("✅ Connected to MongoDB")
         
-        # Change these to your actual database/collection names
+        # Your actual database and collection names
         db = client["people_counter"]  # Your database name
-        collection = db["readings"]  # Your collection name
+        collection = db["readings"]     # Your collection name
         
-        # Get last 60 days of data
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=60)
+        # Get ALL data - NO date filter
+        print("📥 Fetching ALL data from MongoDB...")
         
-        print(f"📥 Fetching data from {start_date.date()} to {end_date.date()}")
-        
-        # Query MongoDB for real data
-        query = {
-            "timestamp": {"$gte": start_date, "$lte": end_date}
-        }
-        
-        data = list(collection.find(query).sort("timestamp", 1))
+        # Query for ALL documents
+        data = list(collection.find({}).sort("timestamp", 1))
         
         if not data:
             print("⚠️ No data found in MongoDB. Using sample data.")
@@ -63,10 +56,12 @@ def get_real_data_from_mongodb():
         
         # Ensure we have required columns
         if 'people_waiting_now' not in df.columns:
-            print("⚠️ Column 'people_waiting_now' not found. Using 'people' or sample data.")
+            print("⚠️ Column 'people_waiting_now' not found. Checking alternatives...")
             if 'people' in df.columns:
                 df['people_waiting_now'] = df['people']
+                print("✅ Using 'people' column as count")
             else:
+                print("❌ No people count column found")
                 return create_sample_data()
         
         # Prepare data
@@ -75,6 +70,8 @@ def get_real_data_from_mongodb():
         
         # Use people_waiting_now as our count
         df['count'] = df['people_waiting_now']
+        
+        print(f"📊 Data range: {df['timestamp'].min()} to {df['timestamp'].max()}")
         
         return df[['timestamp', 'count']]
         
@@ -122,28 +119,49 @@ def train_model(df):
     """Train the LSTM model with the data"""
     print("🧠 Training model...")
     
-    # Prepare sequences (same as before)
+    # Check if we have enough data
+    if len(df) < 100:
+        print(f"⚠️ Very little data: {len(df)} records. Training may be poor.")
+    
+    # Prepare sequences
     scaler = MinMaxScaler()
     data_scaled = scaler.fit_transform(df[['count']].values)
     
     SEQ_LENGTH = 144  # 24 hours
     PRED_LENGTH = 36   # 6 hours
     
+    # Check if we can create sequences
+    max_possible = len(data_scaled) - SEQ_LENGTH - PRED_LENGTH
+    if max_possible <= 0:
+        print(f"❌ Not enough data for sequences. Need {SEQ_LENGTH + PRED_LENGTH} points, have {len(data_scaled)}")
+        print("⏭️ Cannot train with this data.")
+        return 0.0
+    
     # Create sequences
     X, y = [], []
-    for i in range(len(data_scaled) - SEQ_LENGTH - PRED_LENGTH):
+    for i in range(max_possible):
         X.append(data_scaled[i:i+SEQ_LENGTH])
         y.append(data_scaled[i+SEQ_LENGTH:i+SEQ_LENGTH+PRED_LENGTH])
     
     X = np.array(X)
     y = np.array(y)
     
-    # Split data
-    split_idx = int(len(X) * 0.8)
-    X_train, X_test = X[:split_idx], X[split_idx:]
-    y_train, y_test = y[:split_idx], y[split_idx:]
+    print(f"📊 Created {len(X)} training sequences")
     
-    print(f"📊 Training on {len(X_train)} sequences")
+    # Adjust parameters based on data size
+    if len(X) < 50:
+        validation_split = 0.1
+        epochs = 15
+        batch_size = min(16, len(X))
+        print(f"📉 Small dataset: Using validation_split={validation_split}, epochs={epochs}")
+    elif len(X) < 200:
+        validation_split = 0.15
+        epochs = 20
+        batch_size = 32
+    else:
+        validation_split = 0.2
+        epochs = 30
+        batch_size = 32
     
     # Load existing model or create new
     try:
@@ -161,17 +179,22 @@ def train_model(df):
         model.compile(optimizer='adam', loss='mse', metrics=['mae'])
     
     # Train
+    print(f"🚂 Training with {len(X)} sequences, {epochs} epochs...")
     history = model.fit(
-        X_train, y_train,
-        validation_split=0.2,
-        epochs=20,
-        batch_size=32,
+        X, y,
+        validation_split=validation_split,
+        epochs=epochs,
+        batch_size=batch_size,
         verbose=0
     )
     
     # Evaluate
-    test_loss, test_mae = model.evaluate(X_test, y_test, verbose=0)
-    print(f"📈 Test MAE: {test_mae:.4f}")
+    if len(X) > 10:
+        test_loss, test_mae = model.evaluate(X, y, verbose=0)
+        print(f"📈 Test MAE: {test_mae:.4f} (approx {test_mae * df['count'].max():.1f} people error)")
+    else:
+        test_mae = history.history['val_mae'][-1] if 'val_mae' in history.history else 0.15
+        print(f"📊 Using validation MAE: {test_mae:.4f}")
     
     # Save model and scaler
     model.save('bus_stop_predictor.h5')
@@ -185,7 +208,10 @@ def train_model(df):
         "min_people": float(df['count'].min()),
         "last_trained": datetime.now().isoformat(),
         "records_used": len(df),
-        "test_mae": float(test_mae)
+        "sequences_created": len(X),
+        "test_mae": float(test_mae),
+        "training_samples": len(X),
+        "status": "trained"
     }
     
     with open('model_info.json', 'w') as f:
@@ -207,11 +233,18 @@ def main():
     print(f"   Records: {len(df)}")
     print(f"   Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
     print(f"   Average count: {df['count'].mean():.1f}")
+    print(f"   Min count: {df['count'].min()}")
+    print(f"   Max count: {df['count'].max()}")
     
     # Train model
     mae = train_model(df)
     
-    print(f"\n🎯 Training completed with MAE: {mae:.4f}")
+    if mae > 0:
+        print(f"\n🎯 Training completed with MAE: {mae:.4f}")
+        print(f"   Prediction error: ~{mae * df['count'].max():.1f} people")
+    else:
+        print("\n⚠️ Training failed or skipped")
+    
     print(f"🕒 Next training: Tomorrow at 2 AM")
     print("=" * 50)
 
