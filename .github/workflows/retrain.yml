@@ -37,16 +37,20 @@ jobs:
     - name: Check for model updates
       id: check-updates
       run: |
+        echo "🔍 Checking for model updates..."
+        # Check if any model files were modified
         if git status --porcelain | grep -q -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)'; then
           echo "changes=true" >> $GITHUB_OUTPUT
-          echo "📤 Model files updated"
-        else:
+          echo "📤 Model files were updated"
+        else
           echo "changes=false" >> $GITHUB_OUTPUT
-          echo "📭 No changes"
+          echo "📭 No changes to model files"
+        fi
     
     - name: Commit and push updated model
       if: steps.check-updates.outputs.changes == 'true'
       run: |
+        echo "📝 Committing updated model files..."
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
@@ -54,7 +58,7 @@ jobs:
         git push
     
     - name: Upload trained models as artifact
-      uses: actions/upload-artifact@v4  # ← CHANGED FROM v3 to v4
+      uses: actions/upload-artifact@v4
       with:
         name: trained-models
         path: |
