@@ -9,19 +9,15 @@ jobs:
   retrain:
     runs-on: ubuntu-latest
     
-    # Grant write permissions
     permissions:
       contents: write
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-      with:
-        # Use PAT token for write access
-        token: ${{ secrets.PAT_TOKEN }}
+      uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.9'
     
@@ -41,7 +37,6 @@ jobs:
     - name: Check for model updates
       id: check-updates
       run: |
-        # Check if model files changed
         if git status --porcelain | grep -q -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)'; then
           echo "changes=true" >> $GITHUB_OUTPUT
           echo "📤 Model files updated"
@@ -51,18 +46,15 @@ jobs:
     
     - name: Commit and push updated model
       if: steps.check-updates.outputs.changes == 'true'
-      env:
-        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
         git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
         git push
     
     - name: Upload trained models as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # ← CHANGED FROM v3 to v4
       with:
         name: trained-models
         path: |
