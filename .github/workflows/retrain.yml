@@ -1,9 +1,71 @@
-name: Daily AI Retraining  # ← This controls the name
+name: Daily AI Retraining
 
-on: workflow_dispatch
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:      # Manual trigger
 
 jobs:
-  test:
+  retrain:
     runs-on: ubuntu-latest
+    
+    # Grant write permissions
+    permissions:
+      contents: write
+    
     steps:
-      - run: echo "Test workflow"
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        # Use PAT token for write access
+        token: ${{ secrets.PAT_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Train with real MongoDB data
+      env:
+        MONGODB_URI: ${{ secrets.MONGODB_URI }}
+      run: |
+        echo "🔄 Starting training..."
+        python train_real_data.py
+        echo "✅ Training completed!"
+    
+    - name: Check for model updates
+      id: check-updates
+      run: |
+        # Check if model files changed
+        if git status --porcelain | grep -q -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)'; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "📤 Model files updated"
+        else:
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "📭 No changes"
+    
+    - name: Commit and push updated model
+      if: steps.check-updates.outputs.changes == 'true'
+      env:
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}
+        git add bus_stop_predictor.h5 scaler.pkl model_info.json
+        git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
+        git push
+    
+    - name: Upload trained models as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-models
+        path: |
+          bus_stop_predictor.h5
+          scaler.pkl
+          model_info.json
