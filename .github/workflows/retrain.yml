@@ -12,7 +12,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        # Use PAT token for checkout with write permissions
+        token: ${{ secrets.PAT_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -35,23 +36,91 @@ jobs:
         MONGODB_URI: ${{ secrets.MONGODB_URI }}
       run: |
         echo "🔄 Starting training..."
+        echo "========================================"
         python train_real_data.py
+        echo "========================================"
+        echo "✅ Training completed!"
     
     - name: Check for model updates
       id: check-updates
       run: |
-        # Check if any model files changed
-        git status --porcelain | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)' && echo "changes=true" >> $GITHUB_OUTPUT || echo "changes=false" >> $GITHUB_OUTPUT
+        # Check if model files were modified
+        echo "🔍 Checking for model updates..."
+        if git status --porcelain | grep -E '(bus_stop_predictor\.h5|scaler\.pkl|model_info\.json)'; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "📤 Model files were updated - will commit"
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "📭 No changes to model files"
+        fi
     
-     - name: Commit updated model
+    - name: Commit and push updated model
       if: steps.check-updates.outputs.changes == 'true'
       env:
-        # Use PAT token instead of GITHUB_TOKEN
-        GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        # Use PAT token for authentication
+        PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
       run: |
+        echo "📝 Committing updated model files..."
+        
+        # Configure git
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}
+        
+        # Set remote URL with PAT token
+        git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git
+        
+        # Add only model files
         git add bus_stop_predictor.h5 scaler.pkl model_info.json
-        git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')"
-        git push origin main
+        
+        # Commit
+        git commit -m "🤖 Daily AI model update - $(date +'%Y-%m-%d')
+        
+        📊 Training Summary:
+        - Records used: $(grep -o '"records_used":[0-9]*' model_info.json | cut -d: -f2)
+        - Sequences: $(grep -o '"sequences_created":[0-9]*' model_info.json | cut -d: -f2)
+        - Test MAE: $(grep -o '"test_mae":[0-9]*\.?[0-9]*' model_info.json | cut -d: -f2)"
+        
+        # Push to main branch
+        echo "🚀 Pushing to GitHub..."
+        git push origin HEAD:main
+        
+        echo "✅ Successfully updated repository!"
+    
+    - name: Upload trained models as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-models
+        path: |
+          bus_stop_predictor.h5
+          scaler.pkl
+          model_info.json
+        retention-days: 7
+    
+    - name: Training Summary
+      run: |
+        echo "========================================"
+        echo "🎯 DAILY TRAINING COMPLETE"
+        echo "========================================"
+        
+        if [ -f model_info.json ]; then
+          echo "📊 Training Results:"
+          python -c "
+import json
+try:
+    with open('model_info.json', 'r') as f:
+        data = json.load(f)
+    print(f'  • Records used: {data.get(\"records_used\", 0)}')
+    print(f'  • Sequences created: {data.get(\"sequences_created\", 0)}')
+    print(f'  • Test MAE: {data.get(\"test_mae\", 0):.4f}')
+    print(f'  • Last trained: {data.get(\"last_trained\", \"Unknown\")}')
+    print(f'  • Status: {data.get(\"status\", \"Unknown\")}')
+except:
+    print('  • Could not read model_info.json')
+          "
+        else:
+          echo "  • model_info.json not found"
+        
+        echo ""
+        echo "📥 Download updated models from Artifacts section"
+        echo "🔄 Next training: Tomorrow at 2 AM UTC"
+        echo "========================================"
