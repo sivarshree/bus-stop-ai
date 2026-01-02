@@ -2,7 +2,7 @@ name: Daily AI Retraining
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 19 * * *'  # 7 PM UTC = 3 AM Malaysia Time
   workflow_dispatch:      # Manual trigger
 
 jobs:
