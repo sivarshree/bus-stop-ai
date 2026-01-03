@@ -15,6 +15,9 @@ from pymongo import MongoClient
 # Initialize FastAPI
 app = FastAPI(title="Bus Stop Prediction API")
 
+# Global MongoDB collection
+mongo_collection = None
+
 # Load model and components
 try:
     model = load_model("bus_stop_predictor.h5")
@@ -71,15 +74,19 @@ def root():
         "message": "Bus Stop Prediction API",
         "endpoints": {
             "/predict": "POST - Get predictions for next 6 hours",
-            "/health": "GET - Check API health"
+            "/health": "GET - Check API health",
+            "/current/{bus_stop_id}": "GET - Get current occupancy",
+            "/historical/{bus_stop_id}": "GET - Get historical data"
         }
     }
 
 @app.get("/health")
 def health_check():
+    mongodb_status = "connected" if mongo_collection else "disconnected"
     return {
         "status": "healthy",
         "model_loaded": True,
+        "mongodb": mongodb_status,
         "timestamp": datetime.now().isoformat()
     }
 
@@ -122,4 +129,128 @@ def predict(request: PredictionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
+# ===== MongoDB ENDPOINTS =====
+@app.get("/current/{bus_stop_id}")
+async def get_current_occupancy(bus_stop_id: str):
+    """Get latest people count for a bus stop from MongoDB"""
+    try:
+        if not mongo_collection:
+            return {
+                "bus_stop_id": bus_stop_id,
+                "people_waiting_now": 0,
+                "timestamp": datetime.now().isoformat(),
+                "has_data": False,
+                "message": "MongoDB not connected"
+            }
+        
+        # Get latest reading
+        latest = mongo_collection.find_one(
+            {"location": bus_stop_id},
+            sort=[("timestamp", -1)]
+        )
+        
+        if not latest:
+            return {
+                "bus_stop_id": bus_stop_id,
+                "people_waiting_now": 0,
+                "timestamp": datetime.now().isoformat(),
+                "has_data": False,
+                "message": "No data found"
+            }
+        
+        # Convert timestamp if needed
+        timestamp = latest.get("timestamp")
+        if isinstance(timestamp, datetime):
+            timestamp = timestamp.isoformat()
+        else:
+            timestamp = datetime.now().isoformat()
+        
+        return {
+            "bus_stop_id": bus_stop_id,
+            "people_waiting_now": latest.get("people_waiting_now", 0),
+            "interval_total": latest.get("interval_total", 0),
+            "timestamp": timestamp,
+            "source": latest.get("source", "unknown"),
+            "has_data": True
+        }
+        
+    except Exception as e:
+        return {
+            "bus_stop_id": bus_stop_id,
+            "people_waiting_now": 0,
+            "timestamp": datetime.now().isoformat(),
+            "has_data": False,
+            "message": f"Error: {str(e)}"
+        }
 
+@app.get("/historical/{bus_stop_id}")
+async def get_historical_data(bus_stop_id: str, hours: int = 24):
+    """Get historical data for AI predictions"""
+    try:
+        if not mongo_collection:
+            return {
+                "bus_stop_id": bus_stop_id,
+                "data": [],
+                "people_counts": [],
+                "count": 0,
+                "has_data": False,
+                "message": "MongoDB not connected"
+            }
+        
+        # Get data for last X hours
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(hours=hours)
+        
+        cursor = mongo_collection.find({
+            "location": bus_stop_id,
+            "timestamp": {"$gte": start_time, "$lte": end_time}
+        }).sort("timestamp", 1)
+        
+        data = list(cursor)
+        
+        if not data:
+            return {
+                "bus_stop_id": bus_stop_id,
+                "data": [],
+                "people_counts": [],
+                "count": 0,
+                "has_data": False,
+                "message": "No historical data"
+            }
+        
+        # Extract just the counts for AI
+        people_counts = [record.get("people_waiting_now", 0) for record in data]
+        
+        # Format data for response
+        formatted_data = []
+        for record in data:
+            timestamp = record.get("timestamp")
+            if isinstance(timestamp, datetime):
+                timestamp = timestamp.isoformat()
+            
+            formatted_data.append({
+                "timestamp": timestamp,
+                "people_waiting_now": record.get("people_waiting_now", 0),
+                "interval_total": record.get("interval_total", 0),
+                "source": record.get("source", "unknown")
+            })
+        
+        return {
+            "bus_stop_id": bus_stop_id,
+            "data": formatted_data,
+            "people_counts": people_counts,
+            "count": len(data),
+            "has_data": True,
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "bus_stop_id": bus_stop_id,
+            "data": [],
+            "people_counts": [],
+            "count": 0,
+            "has_data": False,
+            "message": f"Error: {str(e)}"
+        }
