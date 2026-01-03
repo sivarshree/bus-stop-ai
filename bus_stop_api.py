@@ -134,7 +134,7 @@ def predict(request: PredictionRequest):
 async def get_current_occupancy(bus_stop_id: str):
     """Get latest people count for a bus stop from MongoDB"""
     try:
-        if not mongo_collection:
+        if mongo_collection is None:
             return {
                 "bus_stop_id": bus_stop_id,
                 "people_waiting_now": 0,
@@ -187,7 +187,7 @@ async def get_current_occupancy(bus_stop_id: str):
 async def get_historical_data(bus_stop_id: str, hours: int = 24):
     """Get historical data for AI predictions"""
     try:
-        if not mongo_collection:
+        if mongo_collection is None:
             return {
                 "bus_stop_id": bus_stop_id,
                 "data": [],
