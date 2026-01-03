@@ -129,10 +129,14 @@ def predict(request: PredictionRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
 
-# ===== MongoDB ENDPOINTS =====
+# ===== MongoDB ENDPOINTS (UPDATED) =====
+
 @app.get("/current/{bus_stop_id}")
-async def get_current_occupancy(bus_stop_id: str):
-    """Get latest people count for a bus stop from MongoDB"""
+async def get_current_occupancy(bus_stop_id: str, source: str = "raspberry_pi_01"):
+    """
+    Get latest people count for a bus stop from MongoDB.
+    Defaults to source='raspberry_pi_01' to ignore synthetic data.
+    """
     try:
         if mongo_collection is None:
             return {
@@ -143,9 +147,12 @@ async def get_current_occupancy(bus_stop_id: str):
                 "message": "MongoDB not connected"
             }
         
-        # Get latest reading
+        # Get latest reading specifically from the requested source (defaults to Pi)
         latest = mongo_collection.find_one(
-            {"location": bus_stop_id},
+            {
+                "location": bus_stop_id,
+                "source": source  # <--- FILTER ADDED HERE
+            },
             sort=[("timestamp", -1)]
         )
         
@@ -155,7 +162,7 @@ async def get_current_occupancy(bus_stop_id: str):
                 "people_waiting_now": 0,
                 "timestamp": datetime.now().isoformat(),
                 "has_data": False,
-                "message": "No data found"
+                "message": f"No data found for source: {source}"
             }
         
         # Convert timestamp if needed
@@ -184,8 +191,11 @@ async def get_current_occupancy(bus_stop_id: str):
         }
 
 @app.get("/historical/{bus_stop_id}")
-async def get_historical_data(bus_stop_id: str, hours: int = 24):
-    """Get historical data for AI predictions"""
+async def get_historical_data(bus_stop_id: str, hours: int = 24, source: str = "raspberry_pi_01"):
+    """
+    Get historical data for AI predictions.
+    Defaults to source='raspberry_pi_01' so graphs don't mix real/synthetic data.
+    """
     try:
         if mongo_collection is None:
             return {
@@ -201,8 +211,10 @@ async def get_historical_data(bus_stop_id: str, hours: int = 24):
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(hours=hours)
         
+        # Updated query to include source filter
         cursor = mongo_collection.find({
             "location": bus_stop_id,
+            "source": source, # <--- FILTER ADDED HERE
             "timestamp": {"$gte": start_time, "$lte": end_time}
         }).sort("timestamp", 1)
         
@@ -215,7 +227,7 @@ async def get_historical_data(bus_stop_id: str, hours: int = 24):
                 "people_counts": [],
                 "count": 0,
                 "has_data": False,
-                "message": "No historical data"
+                "message": f"No historical data for source: {source}"
             }
         
         # Extract just the counts for AI
