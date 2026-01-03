@@ -18,6 +18,19 @@ app = FastAPI(title="Bus Stop Prediction API")
 # Global MongoDB collection
 mongo_collection = None
 
+# --- TIMEZONE HELPER FUNCTION ---
+def to_malaysia_time(dt_obj=None):
+    """
+    Converts a UTC datetime object (or current UTC time) to Malaysia Time (UTC+8).
+    If no time is provided, returns current Malaysia time.
+    """
+    if dt_obj is None:
+        dt_obj = datetime.utcnow()
+    
+    # Add 8 hours to the UTC time
+    myt_time = dt_obj + timedelta(hours=8)
+    return myt_time
+
 # Load model and components
 try:
     model = load_model("bus_stop_predictor.h5")
@@ -87,7 +100,7 @@ def health_check():
         "status": "healthy",
         "model_loaded": True,
         "mongodb": mongodb_status,
-        "timestamp": datetime.now().isoformat()
+        "timestamp_myt": to_malaysia_time().isoformat() # Updated to MYT
     }
 
 @app.post("/predict", response_model=PredictionResponse)
@@ -113,16 +126,18 @@ def predict(request: PredictionRequest):
         predictions = pred_actual.flatten().tolist()
         
         # Generate timestamps (every 10 minutes for next 6 hours)
-        now = datetime.now()
+        # UPDATED: Use Malaysia Time as base
+        now_myt = to_malaysia_time()
+        
         timestamps = [
-            (now + timedelta(minutes=(i+1)*10)).strftime("%H:%M")
+            (now_myt + timedelta(minutes=(i+1)*10)).strftime("%H:%M")
             for i in range(PRED_LENGTH)
         ]
         
         return PredictionResponse(
             predictions=predictions,
             timestamps=timestamps,
-            generated_at=now.isoformat(),
+            generated_at=now_myt.isoformat(),
             location=request.location
         )
         
@@ -142,7 +157,7 @@ async def get_current_occupancy(bus_stop_id: str, source: str = "raspberry_pi_01
             return {
                 "bus_stop_id": bus_stop_id,
                 "people_waiting_now": 0,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": to_malaysia_time().isoformat(),
                 "has_data": False,
                 "message": "MongoDB not connected"
             }
@@ -151,7 +166,7 @@ async def get_current_occupancy(bus_stop_id: str, source: str = "raspberry_pi_01
         latest = mongo_collection.find_one(
             {
                 "location": bus_stop_id,
-                "source": source  # <--- FILTER ADDED HERE
+                "source": source
             },
             sort=[("timestamp", -1)]
         )
@@ -160,23 +175,24 @@ async def get_current_occupancy(bus_stop_id: str, source: str = "raspberry_pi_01
             return {
                 "bus_stop_id": bus_stop_id,
                 "people_waiting_now": 0,
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": to_malaysia_time().isoformat(),
                 "has_data": False,
                 "message": f"No data found for source: {source}"
             }
         
-        # Convert timestamp if needed
+        # Convert timestamp to Malaysia Time
         timestamp = latest.get("timestamp")
         if isinstance(timestamp, datetime):
-            timestamp = timestamp.isoformat()
+            # Convert the stored UTC time to MYT
+            timestamp = to_malaysia_time(timestamp).isoformat()
         else:
-            timestamp = datetime.now().isoformat()
+            timestamp = to_malaysia_time().isoformat()
         
         return {
             "bus_stop_id": bus_stop_id,
             "people_waiting_now": latest.get("people_waiting_now", 0),
             "interval_total": latest.get("interval_total", 0),
-            "timestamp": timestamp,
+            "timestamp": timestamp, # This is now MYT
             "source": latest.get("source", "unknown"),
             "has_data": True
         }
@@ -185,7 +201,7 @@ async def get_current_occupancy(bus_stop_id: str, source: str = "raspberry_pi_01
         return {
             "bus_stop_id": bus_stop_id,
             "people_waiting_now": 0,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": to_malaysia_time().isoformat(),
             "has_data": False,
             "message": f"Error: {str(e)}"
         }
@@ -207,15 +223,14 @@ async def get_historical_data(bus_stop_id: str, hours: int = 24, source: str = "
                 "message": "MongoDB not connected"
             }
         
-        # Get data for last X hours
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(hours=hours)
+        # Get data for last X hours (Query still uses UTC for Mongo)
+        end_time_utc = datetime.utcnow()
+        start_time_utc = end_time_utc - timedelta(hours=hours)
         
-        # Updated query to include source filter
         cursor = mongo_collection.find({
             "location": bus_stop_id,
-            "source": source, # <--- FILTER ADDED HERE
-            "timestamp": {"$gte": start_time, "$lte": end_time}
+            "source": source,
+            "timestamp": {"$gte": start_time_utc, "$lte": end_time_utc}
         }).sort("timestamp", 1)
         
         data = list(cursor)
@@ -233,15 +248,16 @@ async def get_historical_data(bus_stop_id: str, hours: int = 24, source: str = "
         # Extract just the counts for AI
         people_counts = [record.get("people_waiting_now", 0) for record in data]
         
-        # Format data for response
+        # Format data for response with Malaysia Time
         formatted_data = []
         for record in data:
             timestamp = record.get("timestamp")
             if isinstance(timestamp, datetime):
-                timestamp = timestamp.isoformat()
+                # Convert to MYT for display
+                timestamp = to_malaysia_time(timestamp).isoformat()
             
             formatted_data.append({
-                "timestamp": timestamp,
+                "timestamp": timestamp, # MYT Time
                 "people_waiting_now": record.get("people_waiting_now", 0),
                 "interval_total": record.get("interval_total", 0),
                 "source": record.get("source", "unknown")
@@ -253,8 +269,8 @@ async def get_historical_data(bus_stop_id: str, hours: int = 24, source: str = "
             "people_counts": people_counts,
             "count": len(data),
             "has_data": True,
-            "start_time": start_time.isoformat(),
-            "end_time": end_time.isoformat()
+            "start_time": to_malaysia_time(start_time_utc).isoformat(),
+            "end_time": to_malaysia_time(end_time_utc).isoformat()
         }
         
     except Exception as e:
