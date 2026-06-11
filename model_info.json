@@ -1,1 +1,1 @@
-{"seq_length": 144, "pred_length": 36, "max_people": 34.0, "min_people": 0.0, "last_trained": "2026-06-10T21:28:35.459394", "records_used": 4177, "sequences_created": 3997, "test_mae": 0.06369801610708237, "training_samples": 3997, "status": "trained"}
+{"seq_length": 144, "pred_length": 36, "max_people": 34.0, "min_people": 0.0, "last_trained": "2026-06-11T21:25:07.890744", "records_used": 4177, "sequences_created": 3997, "test_mae": 0.06439217925071716, "training_samples": 3997, "status": "trained"}
